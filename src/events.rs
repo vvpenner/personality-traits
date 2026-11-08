@@ -31,6 +31,9 @@ struct RawButton {
     action: String,
     #[serde(default)]
     event: String,
+    /// Если задано — кнопка открывает ссылку (URL-кнопка, без callback).
+    #[serde(default)]
+    url: String,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +51,7 @@ pub struct Button {
     pub text: String,
     pub action: String,
     pub event: String,
+    pub url: String,
 }
 
 #[derive(Debug)]
@@ -84,6 +88,7 @@ impl Course {
                     text: b.text,
                     action: b.action,
                     event: b.event.trim().to_string(),
+                    url: b.url.trim().to_string(),
                 })
                 .collect();
 

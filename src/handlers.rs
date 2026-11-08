@@ -5,7 +5,10 @@ use chrono::Utc;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use teloxide::prelude::*;
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, MaybeInaccessibleMessage};
+use teloxide::types::{
+    ButtonRequest, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
+    KeyboardMarkup, KeyboardRemove, MaybeInaccessibleMessage, ReplyMarkup,
+};
 
 use crate::db::{self, Pool};
 use crate::events::Course;
@@ -14,6 +17,15 @@ use crate::media;
 static EMAIL_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$").unwrap()
 });
+
+const ASK_PHONE: &str = "Здравствуйте! Это бот практикума LESSSTRESS 🌿\n\n\
+     Для регистрации, пожалуйста, поделитесь своим номером телефона — \
+     нажмите кнопку ниже.";
+
+const ASK_EMAIL: &str = "Спасибо! Теперь отправьте, пожалуйста, ваш email одним сообщением.\n\n\
+     ❗️ Важно: указывайте ту же почту, что вы указали в заявке на практикум, — \
+     с этой же почты вы будете проходить опросы. Так мы сможем идентифицировать вас \
+     для предоставления обратной связи. Обещаем строгую конфиденциальность!";
 
 pub async fn on_message(
     bot: Bot,
@@ -41,13 +53,20 @@ async fn on_message_inner(bot: &Bot, msg: &Message, pool: &Pool, course: &Course
     };
     let tg_id = user.id.0 as i64;
     let chat = msg.chat.id;
-    let text = msg.text().unwrap_or("").trim();
     let username = user.username.as_deref();
     let first_name = Some(user.first_name.as_str());
 
+    // Шаг 1 регистрации: пользователь поделился контактом.
+    if let Some(contact) = msg.contact() {
+        return handle_contact(bot, chat, tg_id, username, first_name, contact, pool).await;
+    }
+
+    let text = msg.text().unwrap_or("").trim();
+    let known = db::get_user(pool, tg_id).await?;
+
     match text {
-        "/start" => handle_start(bot, chat, tg_id, pool, course).await,
-        "/restart" => handle_restart(bot, chat, tg_id, pool, course).await,
+        "/start" => handle_start(bot, chat, tg_id, pool, course, known.as_ref()).await,
+        "/restart" => handle_restart(bot, chat, tg_id, pool, course, known.as_ref()).await,
         "/help" => {
             bot.send_message(
                 chat,
@@ -58,10 +77,19 @@ async fn on_message_inner(bot: &Bot, msg: &Message, pool: &Pool, course: &Course
             .await?;
             Ok(())
         }
-        _ => {
-            if db::get_user(pool, tg_id).await?.is_none() {
-                handle_email_input(bot, chat, tg_id, username, first_name, text, pool, course).await
-            } else {
+        _ => match &known {
+            None => {
+                ask_phone(bot, chat).await?;
+                Ok(())
+            }
+            Some(u) if u.phone.is_empty() => {
+                ask_phone(bot, chat).await?;
+                Ok(())
+            }
+            Some(u) if u.email.is_empty() => {
+                handle_email_input(bot, chat, tg_id, text, pool, course).await
+            }
+            Some(_) => {
                 bot.send_message(
                     chat,
                     "Пожалуйста, используйте кнопки. Команды: /start, /restart, /help.",
@@ -69,27 +97,68 @@ async fn on_message_inner(bot: &Bot, msg: &Message, pool: &Pool, course: &Course
                 .await?;
                 Ok(())
             }
+        },
+    }
+}
+
+/// Просит поделиться номером телефона (reply-клавиатура с request_contact).
+async fn ask_phone(bot: &Bot, chat: ChatId) -> Result<()> {
+    let kb = KeyboardMarkup::new(vec![vec![
+        KeyboardButton::new("📱 Поделиться номером телефона").request(ButtonRequest::Contact),
+    ]])
+    .resize_keyboard()
+    .one_time_keyboard();
+    bot.send_message(chat, ASK_PHONE).reply_markup(kb).await?;
+    Ok(())
+}
+
+async fn handle_contact(
+    bot: &Bot,
+    chat: ChatId,
+    tg_id: i64,
+    username: Option<&str>,
+    first_name: Option<&str>,
+    contact: &teloxide::types::Contact,
+    pool: &Pool,
+) -> Result<()> {
+    // Защита от пересылки чужого контакта.
+    if let Some(contact_owner) = contact.user_id {
+        if contact_owner.0 != tg_id as u64 {
+            bot.send_message(
+                chat,
+                "Пожалуйста, поделитесь именно своим номером — через кнопку ниже.",
+            )
+            .await?;
+            return ask_phone(bot, chat).await;
         }
     }
+
+    db::upsert_phone(pool, tg_id, &contact.phone_number, username, first_name).await?;
+    tracing::info!("user {} saved phone", tg_id);
+
+    // Убираем reply-клавиатуру и просим email.
+    bot.send_message(chat, "Номер сохранён ✅")
+        .reply_markup(ReplyMarkup::KeyboardRemove(KeyboardRemove::new()))
+        .await?;
+    bot.send_message(chat, ASK_EMAIL).await?;
+    Ok(())
 }
 
 async fn handle_email_input(
     bot: &Bot,
     chat: ChatId,
     tg_id: i64,
-    username: Option<&str>,
-    first_name: Option<&str>,
     text: &str,
     pool: &Pool,
     course: &Course,
 ) -> Result<()> {
     if EMAIL_RE.is_match(text) {
-        db::upsert_user(pool, tg_id, text, username, first_name).await?;
+        db::set_email(pool, tg_id, text).await?;
         bot.send_message(
             chat,
             format!(
-                "Email сохранён: {}\n\
-                 Пожалуйста, указывайте этот же email при заполнении анкет.",
+                "Email сохранён: {}\n\n\
+                 Пожалуйста, указывайте эту же почту при прохождении всех опросов практикума.",
                 text
             ),
         )
@@ -99,7 +168,7 @@ async fn handle_email_input(
         bot.send_message(
             chat,
             "Похоже, это не email. Пожалуйста, отправьте корректный email одним сообщением \
-             (например, name@example.com).",
+             (например, name@example.com). Он должен совпадать с почтой из вашей заявки.",
         )
         .await?;
     }
@@ -112,18 +181,23 @@ async fn handle_start(
     tg_id: i64,
     pool: &Pool,
     course: &Course,
+    known: Option<&db::User>,
 ) -> Result<()> {
-    if db::get_user(pool, tg_id).await?.is_none() {
-        bot.send_message(
-            chat,
-            "Здравствуйте! Чтобы зарегистрироваться, пожалуйста, отправьте ваш email \
-             одним сообщением. Этот же email нужно будет указывать при заполнении анкет.",
-        )
-        .await?;
-        return Ok(());
+    match known {
+        None => {
+            ask_phone(bot, chat).await?;
+        }
+        Some(u) if u.phone.is_empty() => {
+            ask_phone(bot, chat).await?;
+        }
+        Some(u) if u.email.is_empty() => {
+            bot.send_message(chat, ASK_EMAIL).await?;
+        }
+        Some(_) => {
+            let has_session = db::active_session(pool, tg_id).await?.is_some();
+            send_intro(bot, chat, course, has_session).await?;
+        }
     }
-    let has_session = db::active_session(pool, tg_id).await?.is_some();
-    send_intro(bot, chat, course, has_session).await?;
     Ok(())
 }
 
@@ -133,11 +207,12 @@ async fn handle_restart(
     tg_id: i64,
     pool: &Pool,
     course: &Course,
+    known: Option<&db::User>,
 ) -> Result<()> {
-    if db::get_user(pool, tg_id).await?.is_none() {
-        return handle_start(bot, chat, tg_id, pool, course).await;
+    match known {
+        Some(u) if u.is_registered() => send_intro(bot, chat, course, true).await?,
+        _ => return handle_start(bot, chat, tg_id, pool, course, known).await,
     }
-    send_intro(bot, chat, course, true).await?;
     Ok(())
 }
 
@@ -229,9 +304,16 @@ async fn handle_course_start(
     course: &Course,
     restart: bool,
 ) -> Result<()> {
-    if db::get_user(pool, tg_id).await?.is_none() {
-        bot.send_message(chat, "Пожалуйста, сначала отправьте ваш email одним сообщением.")
-            .await?;
+    let registered = db::get_user(pool, tg_id)
+        .await?
+        .map(|u| u.is_registered())
+        .unwrap_or(false);
+    if !registered {
+        bot.send_message(
+            chat,
+            "Пожалуйста, сначала зарегистрируйтесь: отправьте /start.",
+        )
+        .await?;
         return Ok(());
     }
 
@@ -306,6 +388,7 @@ async fn handle_event_button(
         return Ok(());
     };
 
+    // URL-кнопки не генерируют callback — сюда попадают только сценарные.
     let target = button.event.as_str();
     db::record_button(
         pool,
@@ -320,7 +403,7 @@ async fn handle_event_button(
 
     let Some(next_idx) = course.next_after_button(event_idx, target) else {
         db::finish_session(pool, session.id).await?;
-        bot.send_message(chat, "Поздравляем, вы прошли весь практикум!")
+        bot.send_message(chat, "На этом всё! Благодарим вас и остаёмся на связи :)")
             .await?;
         return Ok(());
     };
@@ -372,11 +455,22 @@ pub async fn send_event_with_keyboard(
         .buttons
         .iter()
         .enumerate()
-        .map(|(i, b)| {
-            vec![InlineKeyboardButton::callback(
-                b.text.clone(),
-                format!("btn:{}:{}", event_idx, i),
-            )]
+        .filter_map(|(i, b)| {
+            if !b.url.is_empty() {
+                // URL-кнопка (например, ссылка на Google-форму).
+                match url::Url::parse(&b.url) {
+                    Ok(u) => Some(vec![InlineKeyboardButton::url(b.text.clone(), u)]),
+                    Err(e) => {
+                        tracing::warn!("invalid url '{}' on button {}: {}", b.url, b.id, e);
+                        None
+                    }
+                }
+            } else {
+                Some(vec![InlineKeyboardButton::callback(
+                    b.text.clone(),
+                    format!("btn:{}:{}", event_idx, i),
+                )])
+            }
         })
         .collect();
 

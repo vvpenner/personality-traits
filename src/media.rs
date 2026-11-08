@@ -5,6 +5,10 @@ use teloxide::types::{InlineKeyboardMarkup, InputFile};
 
 const CAPTION_LIMIT: usize = 1024;
 
+/// Отправляет событие: вложения прикреплены к сообщению через caption,
+/// а не идут отдельно. Если текст длиннее лимита подписи Telegram (1024),
+/// первая часть уходит подписью к первому вложению, остаток — текстовым
+/// сообщением следом (клавиатура крепится к последнему сообщению).
 pub async fn send_event_message(
     bot: &Bot,
     chat: ChatId,
@@ -17,22 +21,51 @@ pub async fn send_event_message(
         return;
     }
 
-    let fits_in_caption = text.chars().count() <= CAPTION_LIMIT;
-    if files.len() == 1 && fits_in_caption {
-        match send_one_with_caption(bot, chat, &files[0], text, keyboard.clone()).await {
-            Ok(()) => return,
-            Err(e) => tracing::warn!(
-                "failed to send {} with caption: {}; falling back to separate messages",
-                files[0].display(),
-                e
-            ),
-        }
+    let (caption, rest) = split_caption(text);
+
+    // Первое вложение — с подписью; клавиатуру вешаем на него,
+    // только если весь текст поместился в caption.
+    let kb_for_first = if rest.is_empty() { keyboard.clone() } else { None };
+    match send_one_with_caption(bot, chat, &files[0], &caption, kb_for_first).await {
+        Ok(()) => {}
+        Err(e) => tracing::warn!(
+            "failed to send {} with caption: {}; falling back to separate messages",
+            files[0].display(),
+            e
+        ),
     }
 
-    for path in files {
+    // Остальные вложения — без подписи.
+    for path in &files[1..] {
         send_one(bot, chat, path).await;
     }
-    send_text(bot, chat, text, keyboard).await;
+
+    // Не влезший в caption остаток текста — отдельным сообщением с клавиатурой.
+    if !rest.is_empty() {
+        send_text(bot, chat, &rest, keyboard).await;
+    }
+}
+
+/// Делит текст на caption (≤1024 символов) и остаток.
+/// Разрыв — по последнему переводу строки внутри лимита, чтобы не резать абзац.
+fn split_caption(text: &str) -> (String, String) {
+    if text.chars().count() <= CAPTION_LIMIT {
+        return (text.to_string(), String::new());
+    }
+    // Байтовая граница, не превышающая лимит по символам.
+    let mut byte_idx = 0;
+    for (count, (i, _)) in text.char_indices().enumerate() {
+        if count >= 1000 {
+            break;
+        }
+        byte_idx = i;
+    }
+    let cut = text[..byte_idx]
+        .rfind('\n')
+        .map(|p| p + 1)
+        .filter(|&p| p > 200) // не делать слишком короткую подпись
+        .unwrap_or(byte_idx);
+    (text[..cut].trim_end().to_string(), text[cut..].trim().to_string())
 }
 
 async fn send_text(bot: &Bot, chat: ChatId, text: &str, keyboard: Option<InlineKeyboardMarkup>) {
@@ -153,5 +186,28 @@ async fn send_one(bot: &Bot, chat: ChatId, path: &Path) {
         if let Err(e2) = bot.send_document(chat, InputFile::file(path)).await {
             tracing::error!("failed to send {} as document: {}", path.display(), e2);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_caption;
+
+    #[test]
+    fn short_text_fits_caption() {
+        let (cap, rest) = split_caption("привет");
+        assert_eq!(cap, "привет");
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn long_text_is_split() {
+        let para = "а".repeat(600);
+        let tail = "б".repeat(600);
+        let text = format!("{}\n\n{}", para, tail);
+        let (cap, rest) = split_caption(&text);
+        assert!(cap.chars().count() <= 1024);
+        assert_eq!(cap, para);
+        assert_eq!(rest, tail);
     }
 }

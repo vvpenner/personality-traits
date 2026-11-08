@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS users (
     telegram_id   INTEGER PRIMARY KEY,
-    email         TEXT NOT NULL,
+    phone         TEXT NOT NULL DEFAULT '',
+    email         TEXT NOT NULL DEFAULT '',
     username      TEXT,
     first_name    TEXT,
     registered_at TEXT NOT NULL

@@ -58,7 +58,9 @@ async fn deliver(
     db::update_session_index(pool, sm.session_id, idx as i64).await?;
 
     let event = course.at(idx).expect("idx valid: just looked it up");
-    if event.buttons.is_empty() {
+    // Событие без сценарных кнопок => цепочка продолжается автоматически.
+    let has_scenario_buttons = event.buttons.iter().any(|b| b.url.is_empty());
+    if !has_scenario_buttons {
         match course.next_in_order(idx) {
             Some(next_idx) => {
                 let next = course.at(next_idx).expect("idx valid");
@@ -76,7 +78,7 @@ async fn deliver(
             None => {
                 db::finish_session(pool, sm.session_id).await?;
                 let _ = bot
-                    .send_message(chat, "Поздравляем, вы прошли весь практикум!")
+                    .send_message(chat, "На этом всё! Благодарим вас и остаёмся на связи :)")
                     .await;
             }
         }

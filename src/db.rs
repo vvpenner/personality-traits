@@ -24,40 +24,64 @@ pub async fn connect(url: &str) -> Result<Pool> {
 #[allow(dead_code)]
 pub struct User {
     pub telegram_id: i64,
+    pub phone: String,
     pub email: String,
 }
 
-pub async fn get_user(pool: &Pool, tg_id: i64) -> Result<Option<User>> {
-    let row: Option<(i64, String)> =
-        sqlx::query_as("SELECT telegram_id, email FROM users WHERE telegram_id = ?")
-            .bind(tg_id)
-            .fetch_optional(pool)
-            .await?;
-    Ok(row.map(|(telegram_id, email)| User { telegram_id, email }))
+impl User {
+    /// Регистрация завершена: указаны и телефон, и email.
+    pub fn is_registered(&self) -> bool {
+        !self.phone.is_empty() && !self.email.is_empty()
+    }
 }
 
-pub async fn upsert_user(
+pub async fn get_user(pool: &Pool, tg_id: i64) -> Result<Option<User>> {
+    let row: Option<(i64, String, String)> = sqlx::query_as(
+        "SELECT telegram_id, phone, email FROM users WHERE telegram_id = ?",
+    )
+    .bind(tg_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(telegram_id, phone, email)| User {
+        telegram_id,
+        phone,
+        email,
+    }))
+}
+
+/// Шаг 1 регистрации: сохранить номер телефона (из Telegram contact).
+pub async fn upsert_phone(
     pool: &Pool,
     tg_id: i64,
-    email: &str,
+    phone: &str,
     username: Option<&str>,
     first_name: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO users (telegram_id, email, username, first_name, registered_at) \
+        "INSERT INTO users (telegram_id, phone, username, first_name, registered_at) \
          VALUES (?, ?, ?, ?, ?) \
          ON CONFLICT(telegram_id) DO UPDATE SET \
-            email = excluded.email, \
+            phone = excluded.phone, \
             username = excluded.username, \
             first_name = excluded.first_name",
     )
     .bind(tg_id)
-    .bind(email)
+    .bind(phone)
     .bind(username)
     .bind(first_name)
     .bind(Utc::now().to_rfc3339())
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+/// Шаг 2 регистрации: сохранить email.
+pub async fn set_email(pool: &Pool, tg_id: i64, email: &str) -> Result<()> {
+    sqlx::query("UPDATE users SET email = ? WHERE telegram_id = ?")
+        .bind(email)
+        .bind(tg_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
