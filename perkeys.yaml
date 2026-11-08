@@ -4,17 +4,18 @@
 #
 # Как устроен файл:
 #   - Каждое событие: id, text, file (список вложений из DATA_DIR), buttons,
-#     delay_minutes.
-#   - delay_minutes у события — пауза ПЕРЕД его отправкой. Отсчёт идёт от
-#     нажатия предыдущей кнопки или от отправки предыдущего сообщения.
+#     delay_minutes / delay_seconds.
+#   - delay_minutes / delay_seconds у события — пауза ПЕРЕД его отправкой.
+#     Отсчёт идёт от нажатия предыдущей кнопки или от отправки предыдущего
+#     сообщения.
 #   - Событие без кнопок => бот автоматически планирует следующее по порядку
-#     через delay_minutes следующего события.
+#     через delay следующего события.
 #   - Кнопка с полем url открывает ссылку (без callback); кнопка с event
 #     ведёт на событие сценария.
 #
-# !!! ТЕСТОВЫЙ РЕЖИМ: интервал между днями = 1 минута.
-# !!! Для продакшена замените delay_minutes у всех day_*_info на 1440 (сутки),
-# !!! а у posttest — на 43200 (30 дней).
+# !!! ТЕСТОВЫЙ РЕЖИМ: интервал между днями = 1 секунда (delay_seconds).
+# !!! Для продакшена замените delay_seconds: 1 на delay_minutes: 1440 (сутки)
+# !!! у всех day_*_info, а у posttest — на delay_minutes: 43200 (30 дней).
 #
 # Имена медиафайлов (папка questionnaire/abfi-1/data/):
 #   Титульная картинка.png    — картинка вступительного сообщения
@@ -50,7 +51,7 @@ messages:
   # ==========================================================================
 
   - id: day_1_info
-    delay_minutes: 0  # первое сообщение дня 1 — сразу после нажатия «Начать курс»; production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Тревога бывает полезной
 
@@ -96,7 +97,7 @@ messages:
       Для закрепления навыка предлагаем вам проделывать это в течение нескольких ближайших дней
 
   - id: day_2_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Внимание к себе
 
@@ -132,7 +133,7 @@ messages:
       - День 2. Отзывы к заданию 2.png
 
   - id: day_3_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Беспокойство, которое побуждает действовать
 
@@ -169,7 +170,7 @@ messages:
       Спасибо, что уделили время практике! До встречи завтра!
 
   - id: day_4_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Неожиданный союз
 
@@ -210,7 +211,7 @@ messages:
       До встречи завтра!
 
   - id: day_5_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Маленькие шаги имеют значение
 
@@ -254,7 +255,7 @@ messages:
       Спасибо, что уделили время практике. До встречи завтра!
 
   - id: day_6_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Сигнал – не приговор
 
@@ -293,7 +294,7 @@ messages:
       До встречи завтра!
 
   - id: day_7_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Ваша тревожность может быть ресурсом
 
@@ -366,7 +367,7 @@ messages:
   # ==========================================================================
 
   - id: day_8_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Чувствовать больше – замечать больше
 
@@ -413,7 +414,7 @@ messages:
       До встречи завтра!
 
   - id: day_9_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Конфликт начинается не с ссоры
 
@@ -450,7 +451,7 @@ messages:
       До встречи завтра!
 
   - id: day_10_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Гнев тоже о чем-то сообщает
 
@@ -489,7 +490,7 @@ messages:
       Как вы себя чувствуете? Удалось ли вам по-новому взглянуть на свои переживания?
 
   - id: day_11_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Чувствовать и выбирать
 
@@ -531,7 +532,7 @@ messages:
       До встречи завтра!
 
   - id: day_12_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Внимание к другим
 
@@ -568,7 +569,7 @@ messages:
       Спасибо, что уделили время практике! Как вы себя чувствуете? Удалось ли заметить во время практики что-то новое?
 
   - id: day_13_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Неожиданная сторона нашей тревожности
 
@@ -606,7 +607,7 @@ messages:
       До встречи завтра!
 
   - id: day_14_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Чувствительность в отношениях
 
@@ -674,7 +675,7 @@ messages:
   # ==========================================================================
 
   - id: day_15_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       А что, если все пойдет не так?
 
@@ -723,7 +724,7 @@ messages:
       Порой мы видим мир через призму наших мыслей, и именно они могут определять оттенок нашего восприятия. Но мысли не являются фактами, даже если они говорят, что так и есть!
 
   - id: day_16_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       План Б — тоже хороший план
 
@@ -764,7 +765,7 @@ messages:
       Нам не нужно бороться с мыслями, сопротивляться им или судить их. Скорее, мы можем просто решить не следовать им, как только осознаем, что они возникают. Наша главная цель — ясно увидеть мысли, чтобы мы могли выбрать те, на основе которых будем действовать, и те, которые просто оставим.
 
   - id: day_17_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Когда тревога помогает подготовиться
 
@@ -799,7 +800,7 @@ messages:
       Спасибо, что уделили время практике! Удалось ли ощутить во время её выполнения что-то новое, что в прошлый раз не было замечено? Как думаете, почему?
 
   - id: day_18_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Предусмотрительность – это не слабость
 
@@ -842,7 +843,7 @@ messages:
       До встречи завтра!
 
   - id: day_19_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Сила реалистичных ожиданий
 
@@ -886,7 +887,7 @@ messages:
       До встречи завтра!
 
   - id: day_20_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Осторожность и смелость
 
@@ -923,7 +924,7 @@ messages:
       До встречи завтра!
 
   - id: day_21_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Беспокойство может стать планом
 
@@ -995,7 +996,7 @@ messages:
   # ==========================================================================
 
   - id: day_22_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Чувствительность – это не только грусть
 
@@ -1042,7 +1043,7 @@ messages:
       До встречи завтра!
 
   - id: day_23_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Радость тоже бывает сильной
 
@@ -1077,7 +1078,7 @@ messages:
       Спасибо, что уделили время практике! Как вы себя чувствуете после нее? Удалось ли в этот раз обнаружить что-либо новое для себя?
 
   - id: day_24_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Не только плохие эмоции
 
@@ -1111,7 +1112,7 @@ messages:
       Спасибо, что уделили время практике! Теперь вы знаете мысли-блокаторы, которые могут мешать вашим изменениям. До встречи завтра!
 
   - id: day_25_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Эмоциональная жизнь многогранна
 
@@ -1154,7 +1155,7 @@ messages:
       До встречи завтра!
 
   - id: day_26_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Чувствовать – не значит быть слабым
 
@@ -1195,7 +1196,7 @@ messages:
       Спасибо, что уделили время практике! До встречи завтра!
 
   - id: day_27_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Не нужно отказываться от своей чувствительности
 
@@ -1237,7 +1238,7 @@ messages:
       Спасибо, что уделили время практике! Осознайте и обдумайте все написанное еще раз, а завтра мы продолжим выполнять эту практику. До встречи!
 
   - id: day_28_info
-    delay_minutes: 1  # production: 1440
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 1440
     text: |
       Посмотреть на себя по-новому
 
@@ -1313,7 +1314,7 @@ messages:
   # Пост-тест (через месяц после завершения практикума)
   # --------------------------------------------------------------------------
   - id: posttest
-    delay_minutes: 1  # production: 43200 (30 дней)
+    delay_seconds: 1  # test: 1 секунда; production: delay_minutes 43200 (30 дней)
     text: |
       Приветствуем вас, дорогой участник!
 

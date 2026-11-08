@@ -20,6 +20,8 @@ struct RawEvent {
     buttons: Vec<RawButton>,
     #[serde(default)]
     delay_minutes: i64,
+    #[serde(default)]
+    delay_seconds: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +45,7 @@ pub struct Event {
     pub files: Vec<String>,
     pub buttons: Vec<Button>,
     pub delay_minutes: i64,
+    pub delay_seconds: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +104,7 @@ impl Course {
                 files,
                 buttons,
                 delay_minutes: e.delay_minutes,
+                delay_seconds: e.delay_seconds,
             });
         }
         Ok(Self {
@@ -112,6 +116,11 @@ impl Course {
 
     pub fn first(&self) -> Option<&Event> {
         self.events.first()
+    }
+
+    /// Итоговая задержка события (минуты + секунды) как chrono::Duration.
+    pub fn delay_of(event: &Event) -> chrono::Duration {
+        chrono::Duration::seconds(event.delay_minutes.max(0) * 60 + event.delay_seconds.max(0))
     }
 
     pub fn at(&self, idx: usize) -> Option<&Event> {

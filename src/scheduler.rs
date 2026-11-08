@@ -10,7 +10,8 @@ use crate::db::{self, Pool};
 use crate::events::Course;
 use crate::handlers;
 
-const TICK_INTERVAL: Duration = Duration::from_secs(10);
+// ТЕСТОВЫЙ РЕЖИМ: тик каждую секунду. Для продакшена достаточно 10–30 секунд.
+const TICK_INTERVAL: Duration = Duration::from_secs(1);
 
 pub async fn run(bot: Bot, pool: Pool, course: Arc<Course>) {
     tracing::info!("scheduler started, tick every {:?}", TICK_INTERVAL);
@@ -64,15 +65,16 @@ async fn deliver(
         match course.next_in_order(idx) {
             Some(next_idx) => {
                 let next = course.at(next_idx).expect("idx valid");
-                let send_after = Utc::now() + chrono::Duration::minutes(next.delay_minutes.max(0));
+                let send_after = Utc::now() + Course::delay_of(next);
                 db::schedule(pool, sm.session_id, sm.telegram_id, &next.id, send_after).await?;
                 tracing::info!(
-                    "auto-scheduled '{}' (idx {}) for user {} at {} (delay {} min)",
+                    "auto-scheduled '{}' (idx {}) for user {} at {} (delay {} min {} s)",
                     next.id,
                     next_idx,
                     sm.telegram_id,
                     send_after,
-                    next.delay_minutes
+                    next.delay_minutes,
+                    next.delay_seconds
                 );
             }
             None => {

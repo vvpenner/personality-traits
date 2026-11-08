@@ -422,15 +422,16 @@ async fn schedule_next(
     let next = course
         .at(next_idx)
         .ok_or_else(|| anyhow::anyhow!("invalid next_idx {}", next_idx))?;
-    let send_after = trigger_at + chrono::Duration::minutes(next.delay_minutes.max(0));
+    let send_after = trigger_at + Course::delay_of(next);
     db::schedule(pool, session.id, session.telegram_id, &next.id, send_after).await?;
     tracing::info!(
-        "scheduled '{}' (idx {}) for user {} at {} (delay {} min)",
+        "scheduled '{}' (idx {}) for user {} at {} (delay {} min {} s)",
         next.id,
         next_idx,
         session.telegram_id,
         send_after,
-        next.delay_minutes
+        next.delay_minutes,
+        next.delay_seconds
     );
     Ok(())
 }
