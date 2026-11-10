@@ -19,8 +19,35 @@ static EMAIL_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 const ASK_PHONE: &str = "Здравствуйте! Это бот практикума LESSSTRESS 🌿\n\n\
-     Для регистрации, пожалуйста, поделитесь своим номером телефона — \
-     нажмите кнопку ниже.";
+     Для регистрации, пожалуйста, поделитесь своим номером телефона.\n\n\
+     👇 Нажмите кнопку «Поделиться номером телефона» — она находится ПОД полем ввода \
+     сообщения, внизу экрана (если её не видно, нажмите на значок клавиатуры рядом с полем ввода).\n\n\
+     Либо просто отправьте номер сообщением, например: +79001234567";
+
+static PHONE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^\+?[0-9][0-9\s\-\(\)]{8,17}[0-9]$").unwrap()
+});
+
+/// Нормализует введённый вручную номер: оставляет цифры, приводит 8... к +7...
+fn normalize_phone(raw: &str) -> Option<String> {
+    if !PHONE_RE.is_match(raw) {
+        return None;
+    }
+    let digits: String = raw.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() < 10 || digits.len() > 15 {
+        return None;
+    }
+    let normalized = if digits.len() == 11 && digits.starts_with('8') {
+        format!("+7{}", &digits[1..])
+    } else if digits.len() == 11 && digits.starts_with('7') {
+        format!("+{}", digits)
+    } else if digits.len() == 10 {
+        format!("+7{}", digits)
+    } else {
+        format!("+{}", digits)
+    };
+    Some(normalized)
+}
 
 const ASK_EMAIL: &str = "Спасибо! Теперь отправьте, пожалуйста, ваш email одним сообщением.\n\n\
      ❗️ Важно: указывайте ту же почту, что вы указали в заявке на практикум, — \
@@ -79,11 +106,25 @@ async fn on_message_inner(bot: &Bot, msg: &Message, pool: &Pool, course: &Course
         }
         _ => match &known {
             None => {
-                ask_phone(bot, chat).await?;
+                if let Some(phone) = normalize_phone(text) {
+                    db::upsert_phone(pool, tg_id, &phone, username, first_name).await?;
+                    tracing::info!("user {} saved typed phone (new user)", tg_id);
+                    bot.send_message(chat, "Номер сохранён ✅").await?;
+                    bot.send_message(chat, ASK_EMAIL).await?;
+                } else {
+                    ask_phone(bot, chat).await?;
+                }
                 Ok(())
             }
             Some(u) if u.phone.is_empty() => {
-                ask_phone(bot, chat).await?;
+                if let Some(phone) = normalize_phone(text) {
+                    db::upsert_phone(pool, tg_id, &phone, username, first_name).await?;
+                    tracing::info!("user {} saved typed phone", tg_id);
+                    bot.send_message(chat, "Номер сохранён ✅").await?;
+                    bot.send_message(chat, ASK_EMAIL).await?;
+                } else {
+                    ask_phone(bot, chat).await?;
+                }
                 Ok(())
             }
             Some(u) if u.email.is_empty() => {
@@ -107,6 +148,7 @@ async fn ask_phone(bot: &Bot, chat: ChatId) -> Result<()> {
         KeyboardButton::new("📱 Поделиться номером телефона").request(ButtonRequest::Contact),
     ]])
     .resize_keyboard()
+    .input_field_placeholder("👇 Кнопка «Поделиться номером» — внизу экрана".to_string())
     .one_time_keyboard();
     bot.send_message(chat, ASK_PHONE).reply_markup(kb).await?;
     Ok(())
