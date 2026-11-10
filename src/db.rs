@@ -29,9 +29,9 @@ pub struct User {
 }
 
 impl User {
-    /// Регистрация завершена: указаны и телефон, и email.
+    /// Регистрация завершена: указан email.
     pub fn is_registered(&self) -> bool {
-        !self.phone.is_empty() && !self.email.is_empty()
+        !self.email.is_empty()
     }
 }
 
@@ -49,7 +49,34 @@ pub async fn get_user(pool: &Pool, tg_id: i64) -> Result<Option<User>> {
     }))
 }
 
+/// Регистрация по email: создаёт пользователя (если нового) и сохраняет почту.
+pub async fn upsert_email(
+    pool: &Pool,
+    tg_id: i64,
+    email: &str,
+    username: Option<&str>,
+    first_name: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO users (telegram_id, email, username, first_name, registered_at) \
+         VALUES (?, ?, ?, ?, ?) \
+         ON CONFLICT(telegram_id) DO UPDATE SET \
+            email = excluded.email, \
+            username = excluded.username, \
+            first_name = excluded.first_name",
+    )
+    .bind(tg_id)
+    .bind(email)
+    .bind(username)
+    .bind(first_name)
+    .bind(Utc::now().to_rfc3339())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Шаг 1 регистрации: сохранить номер телефона (из Telegram contact).
+#[allow(dead_code)]
 pub async fn upsert_phone(
     pool: &Pool,
     tg_id: i64,
@@ -76,6 +103,7 @@ pub async fn upsert_phone(
 }
 
 /// Шаг 2 регистрации: сохранить email.
+#[allow(dead_code)]
 pub async fn set_email(pool: &Pool, tg_id: i64, email: &str) -> Result<()> {
     sqlx::query("UPDATE users SET email = ? WHERE telegram_id = ?")
         .bind(email)
