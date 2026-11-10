@@ -66,16 +66,19 @@ async fn deliver(
             Some(next_idx) => {
                 let next = course.at(next_idx).expect("idx valid");
                 let send_after = Utc::now() + Course::delay_of(next);
-                db::schedule(pool, sm.session_id, sm.telegram_id, &next.id, send_after).await?;
-                tracing::info!(
-                    "auto-scheduled '{}' (idx {}) for user {} at {} (delay {} min {} s)",
-                    next.id,
-                    next_idx,
-                    sm.telegram_id,
-                    send_after,
-                    next.delay_minutes,
-                    next.delay_seconds
-                );
+                let inserted =
+                    db::schedule(pool, sm.session_id, sm.telegram_id, &next.id, send_after).await?;
+                if inserted {
+                    tracing::info!(
+                        "auto-scheduled '{}' (idx {}) for user {} at {} (delay {} min {} s)",
+                        next.id,
+                        next_idx,
+                        sm.telegram_id,
+                        send_after,
+                        next.delay_minutes,
+                        next.delay_seconds
+                    );
+                }
             }
             None => {
                 db::finish_session(pool, sm.session_id).await?;

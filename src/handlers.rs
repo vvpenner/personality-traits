@@ -388,6 +388,18 @@ async fn handle_event_button(
         return Ok(());
     };
 
+    // Игнорируем повторное нажатие той же кнопки в течение 3 секунд
+    // (двойной тап / повторная доставка callback Telegram).
+    if db::recent_button_exists(pool, tg_id, &event.id, &button.id, 3).await? {
+        tracing::info!(
+            "duplicate press ignored: user {} event {} button {}",
+            tg_id,
+            event.id,
+            button.id
+        );
+        return Ok(());
+    }
+
     // URL-кнопки не генерируют callback — сюда попадают только сценарные.
     let target = button.event.as_str();
     db::record_button(
@@ -423,16 +435,24 @@ async fn schedule_next(
         .at(next_idx)
         .ok_or_else(|| anyhow::anyhow!("invalid next_idx {}", next_idx))?;
     let send_after = trigger_at + Course::delay_of(next);
-    db::schedule(pool, session.id, session.telegram_id, &next.id, send_after).await?;
-    tracing::info!(
-        "scheduled '{}' (idx {}) for user {} at {} (delay {} min {} s)",
-        next.id,
-        next_idx,
-        session.telegram_id,
-        send_after,
-        next.delay_minutes,
-        next.delay_seconds
-    );
+    let inserted = db::schedule(pool, session.id, session.telegram_id, &next.id, send_after).await?;
+    if inserted {
+        tracing::info!(
+            "scheduled '{}' (idx {}) for user {} at {} (delay {} min {} s)",
+            next.id,
+            next_idx,
+            session.telegram_id,
+            send_after,
+            next.delay_minutes,
+            next.delay_seconds
+        );
+    } else {
+        tracing::info!(
+            "'{}' for user {} already scheduled — double press ignored",
+            next.id,
+            session.telegram_id
+        );
+    }
     Ok(())
 }
 

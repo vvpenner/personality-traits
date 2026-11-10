@@ -208,9 +208,12 @@ pub async fn schedule(
     tg_id: i64,
     message_id: &str,
     send_after: DateTime<Utc>,
-) -> Result<i64> {
-    let id = sqlx::query(
-        "INSERT INTO scheduled_messages (session_id, telegram_id, message_id, send_after) \
+) -> Result<bool> {
+    // INSERT OR IGNORE + уникальный индекс (миграция 0002): повторная
+    // постановка того же сообщения в ту же сессию молча игнорируется —
+    // защита от двойных нажатий на кнопки.
+    let res = sqlx::query(
+        "INSERT OR IGNORE INTO scheduled_messages (session_id, telegram_id, message_id, send_after) \
          VALUES (?, ?, ?, ?)",
     )
     .bind(session_id)
@@ -218,9 +221,31 @@ pub async fn schedule(
     .bind(message_id)
     .bind(send_after.to_rfc3339())
     .execute(pool)
-    .await?
-    .last_insert_rowid();
-    Ok(id)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+/// Было ли такое же нажатие этой кнопки в последние `within_secs` секунд.
+pub async fn recent_button_exists(
+    pool: &Pool,
+    tg_id: i64,
+    message_id: &str,
+    button_id: &str,
+    within_secs: i64,
+) -> Result<bool> {
+    let cutoff = (Utc::now() - chrono::Duration::seconds(within_secs)).to_rfc3339();
+    let row: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM button_events \
+         WHERE telegram_id = ? AND message_id = ? AND button_id = ? AND pressed_at > ? \
+         LIMIT 1",
+    )
+    .bind(tg_id)
+    .bind(message_id)
+    .bind(button_id)
+    .bind(cutoff)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.is_some())
 }
 
 #[derive(Debug)]
