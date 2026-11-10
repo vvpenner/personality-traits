@@ -225,6 +225,29 @@ pub async fn schedule(
     Ok(res.rows_affected() > 0)
 }
 
+/// Журнал посетителей: фиксируем каждое входящее сообщение (кто, когда, что).
+pub async fn log_visitor(
+    pool: &Pool,
+    tg_id: i64,
+    username: Option<&str>,
+    first_name: Option<&str>,
+    text: &str,
+) -> Result<()> {
+    let text: String = text.chars().take(120).collect();
+    sqlx::query(
+        "INSERT INTO visitors (telegram_id, username, first_name, text, seen_at) \
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(tg_id)
+    .bind(username)
+    .bind(first_name)
+    .bind(&text)
+    .bind(Utc::now().to_rfc3339())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Было ли такое же нажатие этой кнопки в последние `within_secs` секунд.
 pub async fn recent_button_exists(
     pool: &Pool,

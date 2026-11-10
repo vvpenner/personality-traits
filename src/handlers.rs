@@ -83,6 +83,20 @@ async fn on_message_inner(bot: &Bot, msg: &Message, pool: &Pool, course: &Course
     let username = user.username.as_deref();
     let first_name = Some(user.first_name.as_str());
 
+    // Журнал посетителей: фиксируем факт обращения (до любых проверок).
+    {
+        let preview: String = msg
+            .text()
+            .or_else(|| msg.contact().map(|_| "[контакт]"))
+            .unwrap_or("[медиа/другое]")
+            .chars()
+            .take(120)
+            .collect();
+        if let Err(e) = db::log_visitor(pool, tg_id, username, first_name, &preview).await {
+            tracing::warn!("visitor log failed: {:?}", e);
+        }
+    }
+
     // Шаг 1 регистрации: пользователь поделился контактом.
     if let Some(contact) = msg.contact() {
         return handle_contact(bot, chat, tg_id, username, first_name, contact, pool).await;
@@ -94,6 +108,7 @@ async fn on_message_inner(bot: &Bot, msg: &Message, pool: &Pool, course: &Course
     match text {
         "/start" => handle_start(bot, chat, tg_id, pool, course, known.as_ref()).await,
         "/restart" => handle_restart(bot, chat, tg_id, pool, course, known.as_ref()).await,
+        "/stats" => handle_stats(bot, chat, tg_id, pool, course).await,
         "/help" => {
             bot.send_message(
                 chat,
@@ -543,5 +558,158 @@ pub async fn send_event_with_keyboard(
         Some(InlineKeyboardMarkup::new(rows))
     };
     media::send_event_message(bot, chat, &files, &event.text, keyboard).await;
+    Ok(())
+}
+
+/// Админы: чьи telegram_id перечислены в ADMIN_IDS (через запятую). По умолчанию — Валерия.
+fn is_admin(tg_id: i64) -> bool {
+    let ids = std::env::var("ADMIN_IDS").unwrap_or_else(|_| "926310975".to_string());
+    ids.split(',')
+        .filter_map(|s| s.trim().parse::<i64>().ok())
+        .any(|id| id == tg_id)
+}
+
+/// RFC3339 (UTC) -> "dd.mm HH:MM" по Москве.
+fn msk(ts: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(ts)
+        .map(|t| {
+            t.with_timezone(&chrono::FixedOffset::east_opt(3 * 3600).unwrap())
+                .format("%d.%m %H:%M")
+                .to_string()
+        })
+        .unwrap_or_else(|_| ts.chars().take(16).collect())
+}
+
+/// "day_12_practice" -> "День 12 · практика"; "week_2_survey" -> "Опрос недели 2" и т.п.
+fn event_label(event_id: &str) -> String {
+    static DAY_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"day_(\d+)").unwrap());
+    static WEEK_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"week_(\d+)").unwrap());
+    if let Some(c) = DAY_RE.captures(event_id) {
+        let suffix = if event_id.contains("practice") {
+            " · практика"
+        } else if event_id.contains("outro") {
+            " · выходное"
+        } else {
+            " · инфо"
+        };
+        return format!("День {}{}", &c[1], suffix);
+    }
+    if let Some(c) = WEEK_RE.captures(event_id) {
+        return format!("Опрос недели {}", &c[1]);
+    }
+    match event_id {
+        "start" => "Старт".to_string(),
+        "posttest" => "Пост-тест".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// /stats — статистика по участникам (только для админов).
+async fn handle_stats(bot: &Bot, chat: ChatId, tg_id: i64, pool: &Pool, course: &Course) -> Result<()> {
+    if !is_admin(tg_id) {
+        bot.send_message(chat, "Эта команда доступна только организаторам практикума.")
+            .await?;
+        return Ok(());
+    }
+
+    let users: Vec<(i64, String, String, Option<String>, Option<String>, String)> = sqlx::query_as(
+        "SELECT telegram_id, phone, email, username, first_name, registered_at \
+         FROM users ORDER BY registered_at",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let (visitor_count,): (i64,) = sqlx::query_as("SELECT COUNT(DISTINCT telegram_id) FROM visitors")
+        .fetch_one(pool)
+        .await?;
+    let (unregistered,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(DISTINCT v.telegram_id) FROM visitors v \
+         LEFT JOIN users u ON u.telegram_id = v.telegram_id \
+         WHERE u.telegram_id IS NULL",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let mut out = format!(
+        "📊 Статистика практикума\n\nВсего написали боту: {}\nЗарегистрировано: {}\nЗашли, но не зарегистрировались: {}\n",
+        visitor_count,
+        users.len(),
+        unregistered
+    );
+
+    for (i, (uid, phone, email, username, first_name, registered_at)) in users.iter().enumerate() {
+        let (sessions,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM course_sessions WHERE telegram_id = ?")
+                .bind(uid)
+                .fetch_one(pool)
+                .await?;
+        let (presses,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM button_events WHERE telegram_id = ?")
+                .bind(uid)
+                .fetch_one(pool)
+                .await?;
+        let last_press: Option<(String,)> = sqlx::query_as(
+            "SELECT MAX(pressed_at) FROM button_events WHERE telegram_id = ?",
+        )
+        .bind(uid)
+        .fetch_optional(pool)
+        .await?;
+        let cur_idx: Option<(i64,)> = sqlx::query_as(
+            "SELECT current_index FROM course_sessions WHERE telegram_id = ? ORDER BY id DESC LIMIT 1",
+        )
+        .bind(uid)
+        .fetch_optional(pool)
+        .await?;
+        let pending: Option<(String, String)> = sqlx::query_as(
+            "SELECT message_id, send_after FROM scheduled_messages \
+             WHERE telegram_id = ? AND sent_at IS NULL ORDER BY send_after LIMIT 1",
+        )
+        .bind(uid)
+        .fetch_optional(pool)
+        .await?;
+
+        let name = first_name.clone().unwrap_or_else(|| "—".to_string());
+        let uname = username
+            .as_ref()
+            .map(|u| format!("@{}", u))
+            .unwrap_or_else(|| "—".to_string());
+        let position = cur_idx
+            .and_then(|(idx,)| course.at(idx as usize))
+            .map(|e| event_label(&e.id))
+            .unwrap_or_else(|| "ещё не начал курс".to_string());
+        let pending_str = pending
+            .map(|(mid, after)| format!("След. сообщение: {} в {}\n", event_label(&mid), msk(&after)))
+            .unwrap_or_default();
+        let last_str = last_press
+            .map(|(ts,)| format!("Последняя активность: {}\n", msk(&ts)))
+            .unwrap_or_default();
+
+        out.push_str(&format!(
+            "\n{}. {} ({})\n📱 {} · ✉️ {}\nРегистрация: {}\nСейчас: {}\n{}Сессий: {} · нажатий кнопок: {}\n{}",
+            i + 1,
+            name,
+            uname,
+            phone,
+            email,
+            msk(registered_at),
+            position,
+            pending_str,
+            sessions,
+            presses,
+            last_str
+        ));
+    }
+
+    if users.is_empty() {
+        out.push_str("\nПока никто не зарегистрировался.");
+    }
+
+    // Telegram ограничивает сообщение 4096 символами — делим при необходимости.
+    let mut rest = out.as_str();
+    while !rest.is_empty() {
+        let take = rest.char_indices().nth(4000).map(|(i, _)| i).unwrap_or(rest.len());
+        bot.send_message(chat, &rest[..take]).await?;
+        rest = &rest[take..];
+    }
     Ok(())
 }
