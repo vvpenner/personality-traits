@@ -81,10 +81,9 @@ async fn deliver(
                 }
             }
             None => {
+                // Сценарий завершён: последнее сообщение уже отправлено,
+                // ничего дополнительно не шлём.
                 db::finish_session(pool, sm.session_id).await?;
-                let _ = bot
-                    .send_message(chat, "На этом всё! Благодарим вас и остаёмся на связи :)")
-                    .await;
             }
         }
     }

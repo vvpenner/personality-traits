@@ -157,11 +157,25 @@ impl Course {
     pub fn resolve_file(&self, name: &str) -> Option<PathBuf> {
         let p = self.data_dir.join(name);
         if p.exists() {
-            Some(p)
-        } else {
-            tracing::warn!("attached file not found: {}", p.display());
-            None
+            return Some(p);
         }
+        // Имена файлов могут различаться Unicode-нормализацией (NFC/NFD) —
+        // например, после загрузки через веб-интерфейс GitHub и git clone
+        // на Linux. Ищем файл по NFC-совпадению имени.
+        use unicode_normalization::UnicodeNormalization;
+        let target: String = name.nfc().collect();
+        if let Ok(entries) = std::fs::read_dir(&self.data_dir) {
+            for entry in entries.flatten() {
+                if let Some(fname) = entry.file_name().to_str() {
+                    let fname_nfc: String = fname.nfc().collect();
+                    if fname_nfc == target {
+                        return Some(entry.path());
+                    }
+                }
+            }
+        }
+        tracing::warn!("attached file not found: {}", p.display());
+        None
     }
 }
 

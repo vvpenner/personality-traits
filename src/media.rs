@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use teloxide::prelude::*;
-use teloxide::types::{InlineKeyboardMarkup, InputFile};
+use teloxide::types::{InlineKeyboardMarkup, InputFile, ParseMode};
 
 const CAPTION_LIMIT: usize = 1024;
 
@@ -27,22 +27,28 @@ pub async fn send_event_message(
     // только если весь текст поместился в caption.
     let kb_for_first = if rest.is_empty() { keyboard.clone() } else { None };
     match send_one_with_caption(bot, chat, &files[0], &caption, kb_for_first).await {
-        Ok(()) => {}
-        Err(e) => tracing::warn!(
-            "failed to send {} with caption: {}; falling back to separate messages",
-            files[0].display(),
-            e
-        ),
-    }
-
-    // Остальные вложения — без подписи.
-    for path in &files[1..] {
-        send_one(bot, chat, path).await;
-    }
-
-    // Не влезший в caption остаток текста — отдельным сообщением с клавиатурой.
-    if !rest.is_empty() {
-        send_text(bot, chat, &rest, keyboard).await;
+        Ok(()) => {
+            // Остальные вложения — без подписи.
+            for path in &files[1..] {
+                send_one(bot, chat, path).await;
+            }
+            // Не влезший в caption остаток текста — отдельным сообщением с клавиатурой.
+            if !rest.is_empty() {
+                send_text(bot, chat, &rest, keyboard).await;
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "failed to send {} with caption: {}; falling back to separate messages",
+                files[0].display(),
+                e
+            );
+            // Фолбэк: текст целиком — отдельным сообщением, вложения — следом.
+            send_text(bot, chat, text, keyboard).await;
+            for path in files {
+                send_one(bot, chat, path).await;
+            }
+        }
     }
 }
 
@@ -74,13 +80,44 @@ async fn send_text(bot: &Bot, chat: ChatId, text: &str, keyboard: Option<InlineK
     } else {
         text
     };
-    let result = match keyboard {
-        Some(kb) => bot.send_message(chat, text).reply_markup(kb).await.map(|_| ()),
-        None => bot.send_message(chat, text).await.map(|_| ()),
+    let result = match keyboard.clone() {
+        Some(kb) => bot
+            .send_message(chat, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(kb)
+            .await
+            .map(|_| ()),
+        None => bot
+            .send_message(chat, text)
+            .parse_mode(ParseMode::Html)
+            .await
+            .map(|_| ()),
     };
     if let Err(e) = result {
-        tracing::error!("failed to send text to {}: {}", chat, e);
+        tracing::error!(
+            "failed to send text to {}: {}; retrying without formatting",
+            chat,
+            e
+        );
+        // Фолбэк без разметки: убираем теги и отправляем plain text.
+        let plain = strip_tags(text);
+        let retry = match keyboard {
+            Some(kb) => bot
+                .send_message(chat, plain)
+                .reply_markup(kb)
+                .await
+                .map(|_| ()),
+            None => bot.send_message(chat, plain).await.map(|_| ()),
+        };
+        if let Err(e2) = retry {
+            tracing::error!("failed to send plain text to {}: {}", chat, e2);
+        }
     }
+}
+
+/// Убирает HTML-теги форматирования (для фолбэка без parse_mode).
+fn strip_tags(s: &str) -> String {
+    s.replace("<b>", "").replace("</b>", "")
 }
 
 async fn send_one_with_caption(
@@ -100,7 +137,8 @@ async fn send_one_with_caption(
         "jpg" | "jpeg" | "png" | "webp" => {
             let req = bot
                 .send_photo(chat, InputFile::file(path))
-                .caption(caption);
+                .caption(caption)
+                .parse_mode(ParseMode::Html);
             match keyboard {
                 Some(kb) => req.reply_markup(kb).await?,
                 None => req.await?,
@@ -109,7 +147,8 @@ async fn send_one_with_caption(
         "mp4" => {
             let req = bot
                 .send_video(chat, InputFile::file(path))
-                .caption(caption);
+                .caption(caption)
+                .parse_mode(ParseMode::Html);
             match keyboard {
                 Some(kb) => req.reply_markup(kb).await?,
                 None => req.await?,
@@ -118,7 +157,8 @@ async fn send_one_with_caption(
         "mp3" | "m4a" => {
             let req = bot
                 .send_audio(chat, InputFile::file(path))
-                .caption(caption);
+                .caption(caption)
+                .parse_mode(ParseMode::Html);
             match keyboard {
                 Some(kb) => req.reply_markup(kb).await?,
                 None => req.await?,
@@ -127,7 +167,8 @@ async fn send_one_with_caption(
         "ogg" => {
             let req = bot
                 .send_voice(chat, InputFile::file(path))
-                .caption(caption);
+                .caption(caption)
+                .parse_mode(ParseMode::Html);
             match keyboard {
                 Some(kb) => req.reply_markup(kb).await?,
                 None => req.await?,
@@ -136,7 +177,8 @@ async fn send_one_with_caption(
         _ => {
             let req = bot
                 .send_document(chat, InputFile::file(path))
-                .caption(caption);
+                .caption(caption)
+                .parse_mode(ParseMode::Html);
             match keyboard {
                 Some(kb) => req.reply_markup(kb).await?,
                 None => req.await?,
