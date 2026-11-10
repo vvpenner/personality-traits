@@ -112,6 +112,7 @@ async fn handle_email_input(
     if EMAIL_RE.is_match(text) {
         db::upsert_email(pool, tg_id, text, username, first_name).await?;
         tracing::info!("user {} saved email", tg_id);
+        trigger_sheets_sync();
         bot.send_message(
             chat,
             format!(
@@ -291,6 +292,7 @@ async fn handle_course_start(
         if target.is_empty() { None } else { Some(target) },
     )
     .await?;
+    trigger_sheets_sync();
 
     if let Some(next_idx) = course.next_after_button(0, target) {
         schedule_next(pool, &session, course, next_idx, Utc::now()).await?;
@@ -367,6 +369,7 @@ async fn handle_event_button(
         if target.is_empty() { None } else { Some(target) },
     )
     .await?;
+    trigger_sheets_sync();
 
     let Some(next_idx) = course.next_after_button(event_idx, target) else {
         db::finish_session(pool, session.id).await?;
@@ -500,6 +503,24 @@ fn event_label(event_id: &str) -> String {
         "posttest" => "Пост-тест".to_string(),
         other => other.to_string(),
     }
+}
+
+/// Запускает фоновую синхронизацию статистики в Google Sheets (если скрипт есть на сервере).
+fn trigger_sheets_sync() {
+    if !std::path::Path::new("/opt/perkeys/sheets_sync.py").exists() {
+        return;
+    }
+    tokio::spawn(async {
+        let out = tokio::process::Command::new("/opt/perkeys/venv/bin/python")
+            .arg("/opt/perkeys/sheets_sync.py")
+            .output()
+            .await;
+        match out {
+            Ok(o) if o.status.success() => tracing::info!("sheets sync ok"),
+            Ok(o) => tracing::warn!("sheets sync failed: {}", String::from_utf8_lossy(&o.stderr)),
+            Err(e) => tracing::warn!("sheets sync spawn error: {:?}", e),
+        }
+    });
 }
 
 /// /stats — статистика по участникам (только для админов).
