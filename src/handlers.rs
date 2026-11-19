@@ -506,13 +506,18 @@ fn event_label(event_id: &str) -> String {
 }
 
 /// Запускает фоновую синхронизацию статистики в Google Sheets (если скрипт есть на сервере).
+/// Пути настраиваются отдельно для каждого развёрнутого бота через окружение.
 fn trigger_sheets_sync() {
-    if !std::path::Path::new("/opt/perkeys/sheets_sync.py").exists() {
+    let script = std::env::var("SHEETS_SYNC_SCRIPT")
+        .unwrap_or_else(|_| "/opt/perkeys/sheets_sync.py".to_string());
+    let python = std::env::var("SHEETS_SYNC_PYTHON")
+        .unwrap_or_else(|_| "/opt/perkeys/venv/bin/python".to_string());
+    if !std::path::Path::new(&script).exists() {
         return;
     }
-    tokio::spawn(async {
-        let out = tokio::process::Command::new("/opt/perkeys/venv/bin/python")
-            .arg("/opt/perkeys/sheets_sync.py")
+    tokio::spawn(async move {
+        let out = tokio::process::Command::new(python)
+            .arg(script)
             .output()
             .await;
         match out {

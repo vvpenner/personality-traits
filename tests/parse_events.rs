@@ -74,3 +74,32 @@ fn loads_real_yaml() {
         Some(outro1)
     );
 }
+
+#[test]
+fn loads_central_yaml() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let yaml = root.join("central.yaml");
+    let data = root.join("questionnaire/abfi-1/data");
+    let course = events::Course::load(&yaml, &data).expect("central.yaml must parse");
+    assert_eq!(course.events.len(), 96, "central course must have 96 events");
+    assert_eq!(course.first().map(|e| e.id.as_str()), Some("start"));
+
+    for day in 1..=28 {
+        for part in ["info", "practice", "outro"] {
+            let id = format!("day_{}_{}", day, part);
+            assert!(course.index_of(&id).is_some(), "{} must exist", id);
+        }
+    }
+    for id in [
+        "survey_7",
+        "survey_14",
+        "survey_21",
+        "survey_28",
+        "finish",
+        "posttest",
+        "posttest_survey",
+        "posttest_after",
+    ] {
+        assert!(course.index_of(id).is_some(), "{} must exist", id);
+    }
+}
