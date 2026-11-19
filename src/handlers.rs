@@ -15,11 +15,16 @@ static EMAIL_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$").unwrap()
 });
 
-const ASK_EMAIL: &str = "Здравствуйте! Это бот практикума LESSSTRESS 🌿\n\n\
-     Для регистрации отправьте, пожалуйста, ваш email одним сообщением.\n\n\
-     ❗️ Важно: указывайте ту же почту, что вы указали в заявке на практикум, — \
-     с этой же почты вы будете проходить опросы. Так мы сможем идентифицировать вас \
-     для предоставления обратной связи. Обещаем строгую конфиденциальность!";
+static ASK_EMAIL: Lazy<String> = Lazy::new(|| {
+    let course_name = std::env::var("COURSE_NAME").unwrap_or_else(|_| "LESSSTRESS".to_owned());
+    format!(
+        "Здравствуйте! Это бот практикума {course_name} 🌿\n\n\
+         Для регистрации отправьте, пожалуйста, ваш email одним сообщением.\n\n\
+         ❗️ Важно: указывайте ту же почту, что вы указали в заявке на практикум, — \
+         с этой же почты вы будете проходить опросы. Так мы сможем идентифицировать вас \
+         для предоставления обратной связи. Обещаем строгую конфиденциальность!"
+    )
+});
 
 pub async fn on_message(
     bot: Bot,
@@ -144,10 +149,10 @@ async fn handle_start(
 ) -> Result<()> {
     match known {
         None => {
-            bot.send_message(chat, ASK_EMAIL).await?;
+            bot.send_message(chat, ASK_EMAIL.as_str()).await?;
         }
         Some(u) if u.email.is_empty() => {
-            bot.send_message(chat, ASK_EMAIL).await?;
+            bot.send_message(chat, ASK_EMAIL.as_str()).await?;
         }
         Some(_) => {
             let has_session = db::active_session(pool, tg_id).await?.is_some();
