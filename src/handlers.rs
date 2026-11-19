@@ -26,6 +26,23 @@ static ASK_EMAIL: Lazy<String> = Lazy::new(|| {
     )
 });
 
+async fn send_registration_prompt(bot: &Bot, chat: ChatId, course: &Course) -> Result<()> {
+    let mut text = ASK_EMAIL.as_str().to_owned();
+    let show_overview = std::env::var("SHOW_COURSE_OVERVIEW")
+        .map(|value| value == "true")
+        .unwrap_or(false);
+    if show_overview {
+        if let Some(intro) = course.first() {
+            text.push_str("\n\n<b>Как устроен практикум</b>\n\n");
+            text.push_str(intro.text.trim_end());
+        }
+    }
+    bot.send_message(chat, text)
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .await?;
+    Ok(())
+}
+
 pub async fn on_message(
     bot: Bot,
     msg: Message,
@@ -149,10 +166,10 @@ async fn handle_start(
 ) -> Result<()> {
     match known {
         None => {
-            bot.send_message(chat, ASK_EMAIL.as_str()).await?;
+            send_registration_prompt(bot, chat, course).await?;
         }
         Some(u) if u.email.is_empty() => {
-            bot.send_message(chat, ASK_EMAIL.as_str()).await?;
+            send_registration_prompt(bot, chat, course).await?;
         }
         Some(_) => {
             let has_session = db::active_session(pool, tg_id).await?.is_some();
