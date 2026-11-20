@@ -483,6 +483,21 @@ pub async fn send_event_with_keyboard(
     } else {
         Some(InlineKeyboardMarkup::new(rows))
     };
+    let separate_practice_notice = std::env::var("SEPARATE_PRACTICE_NOTICES")
+        .map(|value| value == "true")
+        .unwrap_or(false)
+        && event.id.starts_with("day_")
+        && event.id.ends_with("_info");
+
+    if separate_practice_notice {
+        if let Some((main_text, practice_notice)) = event.text.rsplit_once("\n\n") {
+            media::send_event_message(bot, chat, &files, main_text, None).await;
+            let practice_notice = format!("<b>Практика</b>\n\n{practice_notice}");
+            media::send_event_message(bot, chat, &[], &practice_notice, keyboard).await;
+            return Ok(());
+        }
+    }
+
     media::send_event_message(bot, chat, &files, &event.text, keyboard).await;
     Ok(())
 }
