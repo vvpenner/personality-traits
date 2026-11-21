@@ -21,6 +21,19 @@ pub async fn send_event_message(
         return;
     }
 
+    let keep_text_together = std::env::var("KEEP_TEXT_TOGETHER")
+        .map(|value| value == "true")
+        .unwrap_or(false);
+    if keep_text_together && text.chars().count() > CAPTION_LIMIT {
+        // Подписи Telegram ограничены 1024 символами. Чтобы не делить текст
+        // на части, отправляем его целиком, а вложения — следующими сообщениями.
+        send_text(bot, chat, text, keyboard).await;
+        for path in files {
+            send_one(bot, chat, path).await;
+        }
+        return;
+    }
+
     let (caption, rest) = split_caption(text);
 
     // Первое вложение — с подписью; клавиатуру вешаем на него,
